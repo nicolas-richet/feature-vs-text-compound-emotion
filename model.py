@@ -12,6 +12,8 @@ from peft import LoraConfig, TaskType, get_peft_model
 from torchinfo import summary
 import sys, os
 from my_lr_scheduler import MyStepLR
+import yaml
+from pathlib import Path
 
 class HiddenPrints:
     def __enter__(self):
@@ -33,7 +35,10 @@ def get_model(model_name = 'bert', verbose = True):
     if constants.DATASET == 'MELD':
         labels = constants.EMOTIONS
     elif constants.DATASET == 'C-EXPR-DB':
-        labels = constants.COMPOUND_EMOTIONS
+        if constants.USE_OTHER_CLASS:
+            labels = constants.COMPOUND_EMOTIONS
+        else:
+            labels = yaml.safe_load(Path('/datasets/C-EXPR-DB/folds/split-0/class_id.yaml').read_text())
     quantization_config = BitsAndBytesConfig(
         load_in_4bit = True,
         bnb_4bit_use_double_quant=True,
@@ -121,6 +126,7 @@ def score(labels, logits, metric = 'accuracy', average='weighted'):
         average (str): 'average' argument for f1-score
     """
     if metric == 'f1':
+        print(confusion_matrix(labels, np.argmax(logits, axis=1)))
         return f1_score(labels, np.argmax(logits, axis=1),average=average)
     else:
         return (labels.flatten() == np.argmax(logits, axis=1)).sum()/labels.shape[0]
@@ -188,9 +194,9 @@ def train(model, train_dataloader, dev_dataloader, device, lr, weight_decay, mod
     training_stats = []
 
     total_t0= time.time()
+    best_val_f1_MELD =0
     best_val_f1_w_other = 0
     best_val_f1_wo_other = 0
-    best_val_f1_MELD =0
     for epoch in range(epochs):
         if patience == 0:
             print(f'Patience exceeded, Training stopped before epoch {epoch}')
@@ -200,6 +206,8 @@ def train(model, train_dataloader, dev_dataloader, device, lr, weight_decay, mod
         print('Training...')
         t0 = time.time()
         total_train_loss = 0
+        train_predictions_logits = []
+        train_labels = []
         model.train()
         for batch in train_dataloader:
             b_input_ids = batch[0].to(device)
@@ -214,8 +222,18 @@ def train(model, train_dataloader, dev_dataloader, device, lr, weight_decay, mod
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 0.3)
             optimizer.step()
+            logits = output.logits
+            train_logits = logits.detach().cpu().to(torch.float16)
+            label_ids = b_labels.to('cpu').numpy()
+            train_labels.append(torch.tensor(label_ids))
+            train_predictions_logits.append(train_logits)
+        train_predictions_logits = torch.cat(train_predictions_logits, 0)
+        train_labels = torch.cat(train_labels, 0)
+        avg_train_loss = total_train_loss / len(train_dataloader)
+
+        train_f1 = score(train_labels, train_predictions_logits, metric='f1', average='weighted')
         
-        avg_train_loss = total_train_loss / len(train_dataloader)            
+        print('train w-F1 :', train_f1)    
         
         training_time = format_time(time.time() - t0)
         print("")
@@ -255,26 +273,21 @@ def train(model, train_dataloader, dev_dataloader, device, lr, weight_decay, mod
         validation_time = format_time(time.time() - t0)
 
         if constants.DATASET == 'C-EXPR-DB':
-            predictions_logits_wo_other = predictions_logits[:,:-1]
-            predictions_w_other = np.argmax(predictions_logits, axis=1)
+
+            if constants.USE_OTHER_CLASS:
+                predictions_logits_wo_other = predictions_logits[:,:-1]
+            else:
+                predictions_logits_wo_other = predictions_logits
             predictions_wo_other = np.argmax(predictions_logits_wo_other, axis=1)
-
-            val_f1_w_other = score(labels, predictions_logits, metric='f1', average='macro')
-            val_acc_w_other = score(labels, predictions_logits, metric='accuracy')
-
-            val_f1_wo_other = score(labels, predictions_logits_wo_other, metric='f1', average='macro')
+            val_f1_wo_other = score(labels, predictions_logits_wo_other, metric='f1', average='weighted')
             val_acc_wo_other = score(labels, predictions_logits_wo_other, metric='accuracy')
             
-            print('validation macro-F1 w. other:', val_f1_w_other)
-            print('validation macro-F1 wo. other:', val_f1_wo_other)
-
-            if val_f1_w_other >= best_val_f1_w_other:
-                torch.save(model.state_dict(), f'{constants.MODEL_PATH}/{model_name}_model_w_other')
-                best_val_f1_w_other = val_f1_w_other
-                patience =max_patience
+            print('validation w-F1 wo. other:', val_f1_wo_other)
 
             if val_f1_wo_other >= best_val_f1_wo_other:
-                torch.save(model.state_dict(), f'{constants.MODEL_PATH}/{model_name}_model_wo_other')
+                Path(f'{constants.MODEL_PATH}/saved').mkdir(parents=True, exist_ok=True)
+                model.save_pretrained(f'{constants.MODEL_PATH}/saved/{model_name}', token=constants.LLAMA_TOKEN)
+                torch.save(model.state_dict(), f'{constants.MODEL_PATH}/{model_name}')
                 best_val_f1_wo_other = val_f1_wo_other
                 patience =max_patience
                 print(f'Patience = {patience}')
@@ -287,20 +300,17 @@ def train(model, train_dataloader, dev_dataloader, device, lr, weight_decay, mod
                 'epoch': epoch + 1,
                 'Training Loss': avg_train_loss,
                 'Valid. Loss': avg_val_loss,
-                'Valid. F1 w. Other': val_f1_w_other,
-                'Valid. Acc w. Other': val_acc_w_other,
                 'Valid. F1 wo. Other': val_f1_wo_other,
                 'Valid. Acc wo. Other': val_acc_wo_other,
+                'Train F1': train_f1,
                 'Training Time': training_time,
                 'Validation Time': validation_time,
                 'Labels': labels,
-                'Predictions w. Other': predictions_w_other,
                 'Predictions wo. Other': predictions_wo_other
                 
             }
         )
-
-        if constants.DATASET == 'MELD':
+        elif constants.DATASET == 'MELD':
             predictions = np.argmax(predictions_logits, axis=1)
 
             val_f1 = score(labels, predictions_logits, metric='f1', average='weighted')
@@ -309,7 +319,9 @@ def train(model, train_dataloader, dev_dataloader, device, lr, weight_decay, mod
             print('validation w-F1:', val_f1)
 
             if val_f1 >= best_val_f1_MELD:
-                torch.save(model.state_dict(), f'{constants.MODEL_PATH}/{model_name}_MELD')
+                Path(f'{constants.MODEL_PATH}/saved').mkdir(parents=True, exist_ok=True)
+                torch.save(model.state_dict(), f'{constants.MODEL_PATH}/{model_name}')
+                model.save_pretrained(f'{constants.MODEL_PATH}/saved/{model_name}', token=constants.LLAMA_TOKEN)
                 best_val_f1_MELD = val_f1
                 patience =max_patience
                 print(f'Patience = {patience}')
