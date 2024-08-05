@@ -69,7 +69,7 @@ Our code for the Feature-based approach can be found at: [github.com/sbelharbi/f
 - Text
 
 ## Datasets:
-For `MELD`, download the videos into the corresponding videos folder \(for example [./MELD/train/videos/](./MELD/train/videos/) for train\). The annotation files should be in the corresponding split folder \(for example [./MELD/train/](./MELD/train/) for train\).
+For `MELD`, download the videos into the corresponding videos folder \(for example [./MELD/train/videos/](./MELD/train/videos/) for train\).
 For `C-EXPR-DB`, download the video into [./C-EXPR-DB](./C-EXPR-DB). Then the videos need to be trimmed according to the annotations, which can be done using the pre-processing described in the [Feature-based Repo](https://github.com/sbelharbi/feature-vs-text-compound-emotion). The trimmed videos should then be put into [./C-EXPR-DB/trimmed_videos](./C-EXPR-DB/trimmed_videos/).
 
 ## Pre-processing and Feature Extraction:
