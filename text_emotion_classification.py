@@ -8,7 +8,8 @@ import random
 import matplotlib.pyplot as plt
 import pandas as pd
 from frame_data_processing import preprocess_data
-from model import get_model, train
+from model import get_model, train, get_predictions
+from sklearn.metrics import f1_score
 from time import sleep
 plt.style.use("ggplot")
 
@@ -37,15 +38,10 @@ def main():
                         split_name = split_dict['split']
                         time = datetime.datetime.now().strftime("%d_%m_%Y_%H_%M_%S")
                         model_name = f'{base_model_name}_{constants.DATASET}_{split_name}_{time}'
-                        labels = split_dict['train'][:][2]
-                        #class_weights = [1/len(np.where(labels ==k)[0]) for k in np.unique(labels)]
-                        #samples_weights = np.array([class_weights[k] for k in labels])
-                        #samples_weights = torch.from_numpy(samples_weights)
-                        #sampler = WeightedRandomSampler(samples_weights, num_samples=constants.SAMPLES_PER_EPOCHS)
                         sampler = None
                         train_dataloader = DataLoader(split_dict['train'], sampler = sampler, batch_size=batch_size, shuffle=True)
                         #test_dataloader = DataLoader(split_dict['test'], batch_size=batch_size)
-                        dev_dataloader = DataLoader(split_dict['val'], batch_size=batch_size)
+                        dev_dataloader = DataLoader(split_dict['val'], batch_size=batch_size, shuffle=False)
                         # Load Model
                         model = get_model(base_model_name)
                         sleep(10)
@@ -95,5 +91,12 @@ def main():
                                 log += f' Other class:{constants.USE_OTHER_CLASS}'
                             elif constants.DATASET == 'MELD':
                                 log = f'\nbest val f1 {np.max(valid_f1)} 100%/single_frame {constants.USE_SINGLE_FRAME_PER_VIDEO} split:{split_name} window_size:{constants.WINDOW_SIZE} hop_size:{constants.WINDOW_HOP} MODALITIES:{constants.USED_MODALITIES} BZ:{batch_size} LR:{lr}  TRANSCRIPTION_CONTEXT: {constants.TRANSCRIPTION_CONTEXT} MODEL:{model_name} SEED:{seed} wd:{constants.PARAM_GRID["weight_decay"]} {time}  lora_r:{constants.LORA_R} lora_alpha:{constants.LORA_ALPHA} lora_dropout:{constants.LORA_DROPOUT} max grad norm:{constants.MAX_GRAD_NORM} samples_per_epochs:{constants.SAMPLES_PER_EPOCHS}'
-                            result_file.write(log)    
+                            result_file.write(log) 
+                        model = ''
+                        model = get_model('llama3')
+                        model.load_state_dict(torch.load('/home/ens/AU58490/work/YP/text-emotion/models/' +model_name))
+                        model.to(device)
+                        model.eval()
+                        predictions = get_predictions(model, dev_dataloader, device)
+                        print('f1:', f1_score(split_dict['val'][:][2], predictions, average = 'weighted'))  
 main()

@@ -6,22 +6,22 @@ DIR = '/home/ens/AU58490/work/YP'
 
 # TRAINING PARAMETERS
 PARAM_GRID = {
-    'batch_size': [6],
-    'lr': [7e-3],#5e-4, 7e-4, 9e-4,#[ 1e-6, 5e-6, 1e-5, 4e-5],#3e-2, 
+    'batch_size': [4,6, 8],#
+    'lr': [7e-3, 3e-3, 9e-4],#5e-4, 7e-4, 9e-4,#[ 1e-6, 5e-6, 1e-5, 4e-5],#3e-2, 
     'weight_decay': 0.001
 }
 EPOCHS = 100
 LORA_R = 8#64
 LORA_ALPHA = 8#16
 LORA_DROPOUT = 0.05
-MAX_GRAD_NORM = 0.3
+MAX_GRAD_NORM = 0.1#0.3
 SAMPLES_PER_EPOCHS = 2000
-GPU_ID = 3
+GPU_ID = 1
 TRANSCRIPTION_CONTEXT = "clip"  #context to use for the text modality. available : "clip", "video".
                                 # Default : "video"
                                 #"clip" uses the transcription of all utterances coinciding with the clip (as in any utterances starting/ending during the clip). 
                                 #"video" uses the transcription of the whole video for each clip of the video.
-MAX_PATIENCE = 10 # Number of epochs in a row with no improvement (on the validation set) the training should wait before stopping, use np.inf for no early stopping
+MAX_PATIENCE = 50 # Number of epochs in a row with no improvement (on the validation set) the training should wait before stopping, use np.inf for no early stopping
 TEXTUALIZE_AUDIO_LEVELS = True #Should the audio feature scores be textualized in the prompt (High/Low)
 SKIPPED_FRAMES = None #Number of frame to skip during action unit pre-processing, use None to process every frames
 USED_FOLDS = [0] #for all folds: [fold for fold in range(5)]
@@ -38,7 +38,7 @@ WINDOW_HOP = 10
 USE_MELD_TRAIN_SUBSET = False
 MELD_TRAIN_SUBSET_PATH = '/home/ens/AU58490/work/YP/data/train/train-1.0.txt'
 USE_SINGLE_FRAME_PER_VIDEO = True #for MELD only
-USED_MODALITIES = ['V'] #['T', 'V', 'A']
+USED_MODALITIES = ['T','V', 'A'] #['T', 'V', 'A']
 
 
 MELD_DATA_DIR = '/home/ens/AU58490/work/YP/data' # Path to the folder containing the processed train/test/dev features folders
@@ -90,9 +90,9 @@ COMPOUND_PAIRS = {
 }
 
 HUME_SUPP_CONTEXT = 2
-COMPOUND_EMOTIONS = yaml.safe_load(Path('/datasets/C-EXPR-DB/folds/split-0/class_id.yaml').read_text())
+COMPOUND_EMOTIONS = yaml.safe_load(Path(f'{FOLDS_PATH}/split-0/class_id.yaml').read_text())
 COMPOUND_EMOTIONS['Other'] = 7
-
-LLAMA_TOKEN =
+API_KEY = '' # Hume API key
+LLAMA_TOKEN = '' # # Hugging face Llama access token
 FFMPEG_PATH = '/home/ens/AU58490/work/YP/ffmpeg-6.1-amd64-static/ffmpeg' # Path to ffmpeg
 OUTPUT_PATH = '/home/ens/AU58490/work/YP/audio_outputs'

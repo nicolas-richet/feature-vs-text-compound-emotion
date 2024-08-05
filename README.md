@@ -1,9 +1,9 @@
-# [Text- and Feature-based Models for Compound Multimodal Emotion Recognition in the Wild](https://arxiv.org/pdf/2407.12927)
+# [Textualized and Feature-based Models for Compound Multimodal Emotion Recognition in the Wild](https://arxiv.org/pdf/2407.12927)
 
 
 by
 **Nicolas Richet<sup>1</sup>,
-SoufianeBelharbi<sup>1</sup>,
+Soufiane Belharbi<sup>1</sup>,
 Haseeb Aslam<sup>1</sup>,
 Meike Emilie Schadt<sup>3</sup>,
 Manuela González-González<sup>2,3</sup>,
@@ -26,26 +26,30 @@ Eric Granger<sup>1</sup>**
 <br/>
 <sup>6</sup> Université Paris-Saclay, CNRS, LISN, 91400, Orsay, France
 
-<p align="center"><img src="doc/promo.png" alt="outline" width="50%"></p>
+<p align="center"><img src="doc/promo.png" alt="outline" width="90%"></p>
 
+[![arXiv](https://img.shields.io/badge/arXiv-2407.12927-b31b1b.svg)](https://arxiv.org/pdf/2407.12927)
+[![Github](https://img.shields.io/badge/github-Feature--based_method-brightgreen.svg)](https://github.com/sbelharbi/feature-vs-text-compound-emotion)
+
+[![Github](https://img.shields.io/badge/This_repo_is_the_text--based_method-brightgreen)](https://github.com/nicolas-richet/feature-vs-text-compound-emotion)
 
 
 ## Abstract
-Systems for multimodal Emotion Recognition (ER) commonly rely on features extracted from different modalities (e.g., visual, audio, and textual) to predict the seven basic emotions. However, compound emotions often occur in real-world scenarios and are more difficult to predict. Compound multimodal ER becomes more challenging in videos due to the added uncertainty of diverse modalities.
-  In addition, standard features-based models may not fully capture the complex and subtle cues needed to understand compound emotions.
-  Since relevant cues can be extracted in the form of text, we advocate for textualizing all modalities, such as visual and audio, to harness the capacity of large language models (LLMs). These models may understand the complex interaction between modalities and the subtleties of complex emotions. Although training an LLM requires large-scale datasets, a recent surge of pre-trained LLMs, such as BERT and LLaMA, can be easily fine-tuned for downstream tasks like compound ER.
-  This paper compares two multimodal modeling approaches for compound ER in videos -- standard feature-based vs. text-based. Experiments were conducted on the challenging \cexprdb dataset for compound ER, and contrasted with results on the \meld dataset for basic ER.
-  Our code for the Feature-based approach can be found at: [github.com/sbelharbi/feature-vs-text-compound-emotion](https://github.com/sbelharbi/feature-vs-text-compound-emotion). This repository is the text-based approach.
+Systems for multimodal emotion recognition (ER) are commonly trained to extract features from different modalities (e.g., visual, audio, and textual) that are combined to predict individual basic emotions. However, compound emotions often occur in real-world scenarios, and the uncertainty of recognizing such complex emotions over diverse modalities is challenging for feature-based models.
+As an alternative, emerging multimodal large language models (LLMs) like BERT and LLaMA rely on explicit non-verbal cues that may be translated from different non-textual modalities (e.g., audio and visual) into text. Textualization of modalities augments data with emotional cues to help the LLM encode the interconnections between all modalities in a shared text space. In such text-based models, prior knowledge of ER tasks is leveraged to textualize relevant nonverbal cues such as audio tone from vocal expressions, and action unit intensity from facial expressions. Since the pre-trained weights are publicly available for many LLMs, training on large-scale datasets is unnecessary, allowing fine-tuning for downstream tasks such as compound ER (CER).
+This paper compares the potential of text- and feature-based approaches for compound multimodal ER in videos. Experiments were conducted on the challenging C-EXPR-DB dataset in the wild for CER, and contrasted with results on the MELD dataset for basic ER. Our results indicate that multimodal textualization provides lower accuracy than feature-based models on C-EXPR-DB, where text transcripts are captured in the wild. However, higher accuracy can be achieved when the video data has rich transcripts.
+Our code for the Feature-based approach can be found at: [github.com/sbelharbi/feature-vs-text-compound-emotion](https://github.com/sbelharbi/feature-vs-text-compound-emotion). This repository is the text-based approach.
 
 **This code is the text-based approach presented in the paper.**
 
 **Code: Pytorch 2.2.2**, made for the [7th-ABAW challenge](https://affective-behavior-analysis-in-the-wild.github.io/7th/).
 
 
+
 ## Citation:
 ```
 @article{Richet-abaw-24,
-  title={Text- and Feature-based Models for Compound Multimodal Emotion Recognition in the Wild},
+  title={Textualized and Feature-based Models for Compound Multimodal Emotion Recognition in the Wild},
   author={Richet, N. and Belharbi, S. and Aslam, H. and Zeeshan, O. and Belharbi, S. and
   Koerich, A. L. and Pedersoli, M. and Bacon, S. and Granger, E.},
   journal={CoRR},
@@ -68,6 +72,71 @@ Systems for multimodal Emotion Recognition (ER) commonly rely on features extrac
 - Audio: `vggish`
 - Text: `bert`
 
+
+## Pre-processing:
+Read [./abaw5_pre_processing/README.txt](./abaw5_pre_processing/README.txt) and download the required file and unzip it.
+1. **First**, split files should be created. See `abaw5_pre_processing/dlib/ds_name.py`. Copy one split: `train.txt, val.txt, test.txt` and `class_id.yaml`
+from `./folds` into the root where the data resides `absolute_path_to_dataset/ds_name`.
+In the next steps, each subset is processed separately: `train`, `val`, `test`.
+In addition, a subset is divided into `n` blocks. Each block is processed
+separately. For `MELD`, process `train, val, test` subsets. For `C-EXPR-DB`,
+process only `train, valid` (test == valid). For `C-EXPR-DB-CHALLENGE`,
+only `test` should be processed.
+2. **Face cropping and alignment**: Here is an example of processing `MELD`,
+`train` which is divided into 8 blocks, and we process block 0.
+
+```bash
+#!/usr/bin/env bash
+
+source ~/venvs/abaw-7-face-extract/bin/activate
+
+cudaid=$1
+export CUDA_VISIBLE_DEVICES=$cudaid
+
+python abaw5_pre_processing/dlib/c_expr_db.py --ds C-EXPR-DB --split train --nblocks 8 --process_block 0
+```
+3. **Feature extraction**:
+
+```bash
+#!/usr/bin/env bash
+
+source ~/venvs/abaw-7/bin/activate
+
+cudaid=$1
+export CUDA_VISIBLE_DEVICES=$cudaid
+
+
+python abaw5_pre_processing/project/abaw5/main.py --ds C-EXPR-DB --split train --nparts 10 --part 0
+
+# ==============================================================================
+```
+Since feature extraction is done by block, we need to gather all the blocks for some results files `processing_records*`, and `dataset_info*`. These 2 files need to hold some information for all data. Run:
+
+```bash
+python post_feature_extract.py
+```
+Before running this, change the name of the dataset in `post_feature_extract.py`.
+4. **Compact of face images**: Cropped faces need to be compacted into a single file, similarly to other modalities. Example:
+
+```bash
+#!/usr/bin/env bash
+
+source ~/venvs/abaw-7-face-extract/bin/activate
+
+cudaid=$1
+export CUDA_VISIBLE_DEVICES=$cudaid
+
+
+python abaw5_pre_processing/dlib/compact_face_images.py --ds C-EXPR-DB --split train --nparts 1 --part 0
+
+```
+Read these comments in the file `compact_face_images.py` first, and edit accordingly:
+
+```python
+# first pass: comment the next line.
+# second pass. Comment this next line in the first pass.
+# assert sz == n, f"{modal} | {sz} | {n} | {dest}"
+```
 
 ## Training:
 ```bash
