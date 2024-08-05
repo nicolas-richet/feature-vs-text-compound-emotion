@@ -2,7 +2,7 @@ import os
 import yaml
 from pathlib import Path
 from inspect import getsourcefile
-DIR = '/home/ens/AU58490/work/YP'
+
 
 # TRAINING PARAMETERS
 PARAM_GRID = {
@@ -32,21 +32,21 @@ SEEDS = [0]
 DATASET = 'C-EXPR-DB'
 TRAINING_METHOD = 'windows' #'windows' for training with consecutives non over-lapping windows (window size must be defined)
                              #'all' to train using every frame (window size must be defined)
-USE_OTHER_CLASS = False
+USE_OTHER_CLASS = False # Is the 'Other' class used in training (never used in validation). for C-EXPR-DB only.
 WINDOW_SIZE = 20 # frames are used in training with windows
 WINDOW_HOP = 10
 USE_MELD_TRAIN_SUBSET = False
-MELD_TRAIN_SUBSET_PATH = '/home/ens/AU58490/work/YP/data/train/train-1.0.txt'
+
 USE_SINGLE_FRAME_PER_VIDEO = True #for MELD only
 USED_MODALITIES = ['T','V', 'A'] #['T', 'V', 'A']
-
 
 MELD_DATA_DIR = '/home/ens/AU58490/work/YP/data' # Path to the folder containing the processed train/test/dev features folders
 C_EXPR_DATA_DIR = '/home/ens/AU58490/work/YP/videos' # Path to the folder containing the processed features
 C_EXPR_ANNOT_DIR = '/datasets/C-EXPR-DB' # Path to the folder containing the annotation folder
 FOLDS_PATH = '/datasets/C-EXPR-DB/folds/' # Path to the folder containing the folds (with train/val/test splits)
+MELD_TRAIN_SUBSET_PATH = '/home/ens/AU58490/work/YP/data/train/train-1.0.txt'
 
-UNIMODAL_TEXT_OUTPUT_PATH = '/home/ens/AU58490/work/YP/text-emotion/ABAW/outputs' # Path to the output folder
+OUTPUT_PATH = '/home/ens/AU58490/work/YP/text-emotion/ABAW/outputs' # Path to the output folder
 MODEL_PATH = '/home/ens/AU58490/work/YP/text-emotion/models' #Path to the folder where the model will be stored
 
 
@@ -92,7 +92,6 @@ COMPOUND_PAIRS = {
 HUME_SUPP_CONTEXT = 2
 COMPOUND_EMOTIONS = yaml.safe_load(Path(f'{FOLDS_PATH}/split-0/class_id.yaml').read_text())
 COMPOUND_EMOTIONS['Other'] = 7
-API_KEY = '' # Hume API key
-LLAMA_TOKEN = '' # # Hugging face Llama access token
+API_KEY = 'PEDA47Gx7ViNR69OxxeaG9SDt3aAsvYstZkEkAtr810UHule' # Hume API key
+LLAMA_TOKEN = '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' # Hugging face Llama access token
 FFMPEG_PATH = '/home/ens/AU58490/work/YP/ffmpeg-6.1-amd64-static/ffmpeg' # Path to ffmpeg
-OUTPUT_PATH = '/home/ens/AU58490/work/YP/audio_outputs'

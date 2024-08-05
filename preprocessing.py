@@ -19,6 +19,14 @@ import json
 
 
 def main(gpu_id, dataset, splits= ['train', 'test', 'dev']):
+    """
+    Preprocessing of videos and audios.
+    Args:
+        gpu_id (int): id of the gpu to use, if no gpu available the device will be set to 'cpu' automatically
+        dataset (string): dataset to process, can be 'MELD' or 'C-EXPR-DB'
+        splits (string list): splits to process for 'MELD' dataset
+            Default: ['train', 'test', 'dev'] (all splits)
+    """
     if torch.cuda.is_available():
         torch.cuda.set_device(f'cuda:{gpu_id}')
         device = torch.device('cuda')
@@ -35,7 +43,12 @@ def main(gpu_id, dataset, splits= ['train', 'test', 'dev']):
     for dir in dirs:
         video_folder=os.path.join(dir, 'videos')
         print('Processing videos...')
-        preprocess_videos(video_folder=video_folder, skip_frames=None, output_folder=os.path.join(dir, 'hume_features'))
+        if constants.DATASET == 'MELD':
+            preprocess_videos(video_folder=video_folder, skip_frames=None, output_folder=os.path.join(dir, 'video_features'))
+        elif constants.DATASET == 'C-EXPR-DB':
+            trimmed_video_path = f'{constants.C_EXPR_DATA_DIR}/trimmed_videos'
+            for compound_emotion in ['Angrily-Surprised', 'Disgustedly-Surprised', 'Fearfully-Surprised', 'Happily-Surprised', 'Other', 'Sadly-Angry', 'Sadly-Fearful', 'Sadly-Surprised']:
+                preprocess_videos(video_folder=f'{trimmed_video_path}/{compound_emotion}', output_folder=f'{constants.C_EXPR_DATA_DIR}/video_features/{compound_emotion}')
         print("Processing Audios...")
         preprocess_audios(video_folder=video_folder, output_folder=dir, device=device, detect_voice=detect_voice)
         print("Analyzing Tone from videos...")
@@ -313,3 +326,4 @@ def extract_hume_features(input_folder, output_folder):
                 features_df = pd.concat(dfs)
             features_df.to_csv(f"{output_folder}/{file[:-5]}.csv")
 
+main(gpu_id=0, dataset='MELD', splits=['train'])

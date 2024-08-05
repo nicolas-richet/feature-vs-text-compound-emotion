@@ -81,11 +81,11 @@ def main():
                         acc_ax.plot(range(len(valid_loss)), valid_loss, label = 'Validation Loss')
                         acc_ax.set_title(f'Loss Evolution')
                         acc_ax.legend()
-                        plt.savefig(f'{constants.UNIMODAL_TEXT_OUTPUT_PATH}/LossEvolution{time}')
+                        plt.savefig(f'{constants.OUTPUT_PATH}/LossEvolution{time}')
                         plt.close()                    
                         training_stats_df = pd.DataFrame.from_records(training_stats)
-                        training_stats_df.to_pickle(f'{constants.UNIMODAL_TEXT_OUTPUT_PATH}/stats_{time}.pkl')
-                        with open(f'{constants.UNIMODAL_TEXT_OUTPUT_PATH}/results.txt', 'a') as result_file:
+                        training_stats_df.to_pickle(f'{constants.OUTPUT_PATH}/stats_{time}.pkl')
+                        with open(f'{constants.OUTPUT_PATH}/results.txt', 'a') as result_file:
                             if constants.DATASET == 'C-EXPR-DB':
                                 log = f'\nbest val f1 wo. Other {np.max(valid_f1_wo_other)} split:{split_name} window_size:{constants.WINDOW_SIZE} MODALITIES:{constants.USED_MODALITIES} BZ:{batch_size} LR:{lr} TRANSCRIPTION_CONTEXT: {constants.TRANSCRIPTION_CONTEXT} MODEL:{model_name} SEED:{seed} wd:{constants.PARAM_GRID["weight_decay"]} {time}  lora_r:{constants.LORA_R} lora_alpha:{constants.LORA_ALPHA} lora_dropout:{constants.LORA_DROPOUT} max grad norm:{constants.MAX_GRAD_NORM} samples_per_epochs:{constants.SAMPLES_PER_EPOCHS}'
                                 log += f' Other class:{constants.USE_OTHER_CLASS}'

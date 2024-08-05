@@ -58,169 +58,36 @@ Our code for the Feature-based approach can be found at: [github.com/sbelharbi/f
 }
 ```
 
-## Installation of the environments
+## Installation of the environment
 ```bash
-# Face cropping and alignment virtual env.
-./create_v_env_face_extract.sh
-
-# Pre-processing and training virtual env.
-./create_v_env_main.sh
+./setup_env.sh
 ```
 
 ## Supported modalities:
-- Vision: `vision`
-- Audio: `vggish`
-- Text: `bert`
+- Vision
+- Audio
+- Text
 
+## Datasets:
+For `MELD`, download the videos into the corresponding videos folder \(for example [./MELD/train/videos/](./MELD/train/videos/) for train\). The annotation files should be in the corresponding split folder \(for example [./MELD/train/](./MELD/train/) for train\).
+For `C-EXPR-DB`, download the video into [./C-EXPR-DB](./C-EXPR-DB). Then the videos need to be trimmed according to the annotations, which can be done using the pre-processing described in the [Feature-based Repo](https://github.com/sbelharbi/feature-vs-text-compound-emotion). The trimmed videos should then be put into [./C-EXPR-DB/trimmed_videos](./C-EXPR-DB/trimmed_videos/).
 
-## Pre-processing:
-Read [./abaw5_pre_processing/README.txt](./abaw5_pre_processing/README.txt) and download the required file and unzip it.
-1. **First**, split files should be created. See `abaw5_pre_processing/dlib/ds_name.py`. Copy one split: `train.txt, val.txt, test.txt` and `class_id.yaml`
-from `./folds` into the root where the data resides `absolute_path_to_dataset/ds_name`.
-In the next steps, each subset is processed separately: `train`, `val`, `test`.
-In addition, a subset is divided into `n` blocks. Each block is processed
-separately. For `MELD`, process `train, val, test` subsets. For `C-EXPR-DB`,
-process only `train, valid` (test == valid). For `C-EXPR-DB-CHALLENGE`,
-only `test` should be processed.
-2. **Face cropping and alignment**: Here is an example of processing `MELD`,
-`train` which is divided into 8 blocks, and we process block 0.
+## Pre-processing and Feature Extraction:
+1. **First**, the paths in [./constants.py](./constants.py) need to be set correctly. FFMPEG needs to be installed. An access token to the [Llama-3 HuggingFace Repo](https://huggingface.co/meta-llama/Meta-Llama-3-8B) and a [Hume API key](https://dev.hume.ai/docs/introduction/api-key)  are needed for the preprocessing.
+
+2. **Feature Extraction**
+Set at the end of [./preprocessing.py](./preprocessing.py) the dataset, device and splits to preprocess. splits are used only for MELD, MELD is large so it is recommended to preprocess each splits separately.
 
 ```bash
-#!/usr/bin/env bash
+source venv/bin/activate
 
-source ~/venvs/abaw-7-face-extract/bin/activate
-
-cudaid=$1
-export CUDA_VISIBLE_DEVICES=$cudaid
-
-python abaw5_pre_processing/dlib/c_expr_db.py --ds C-EXPR-DB --split train --nblocks 8 --process_block 0
-```
-3. **Feature extraction**:
-
-```bash
-#!/usr/bin/env bash
-
-source ~/venvs/abaw-7/bin/activate
-
-cudaid=$1
-export CUDA_VISIBLE_DEVICES=$cudaid
-
-
-python abaw5_pre_processing/project/abaw5/main.py --ds C-EXPR-DB --split train --nparts 10 --part 0
-
-# ==============================================================================
-```
-Since feature extraction is done by block, we need to gather all the blocks for some results files `processing_records*`, and `dataset_info*`. These 2 files need to hold some information for all data. Run:
-
-```bash
-python post_feature_extract.py
-```
-Before running this, change the name of the dataset in `post_feature_extract.py`.
-4. **Compact of face images**: Cropped faces need to be compacted into a single file, similarly to other modalities. Example:
-
-```bash
-#!/usr/bin/env bash
-
-source ~/venvs/abaw-7-face-extract/bin/activate
-
-cudaid=$1
-export CUDA_VISIBLE_DEVICES=$cudaid
-
-
-python abaw5_pre_processing/dlib/compact_face_images.py --ds C-EXPR-DB --split train --nparts 1 --part 0
-
-```
-Read these comments in the file `compact_face_images.py` first, and edit accordingly:
-
-```python
-# first pass: comment the next line.
-# second pass. Comment this next line in the first pass.
-# assert sz == n, f"{modal} | {sz} | {n} | {dest}"
+python3 preprocessing.py
 ```
 
 ## Training:
+Training arguments can be set in [constants.py](./constants.py), and the training can then be launched with:
 ```bash
-#!/usr/bin/env bash
+source venv/bin/activate
 
-source ~/venvs/abaw-7/bin/activate
-
-# ==============================================================================
-cudaid=$1
-export CUDA_VISIBLE_DEVICES=$cudaid
-
-
-python main.py \
-       --dataset_name MELD \
-       --use_other_class False \
-       --train_p 100.0 \
-       --valid_p 100.0 \
-       --test_p 100.0 \
-       --amp True \
-       --seed 0 \
-       --mode TRAINING \
-       --resume False \
-       --modality video+vggish+bert+EXPR_continuous_label \
-       --calc_mean_std True \
-       --emotion LATER \
-       --model_name LFAN \
-       --num_folds 1 \
-       --fold_to_run 0 \
-       --num_heads 2 \
-       --modal_dim 32 \
-       --tcn_kernel_size 5 \
-       --num_epochs 1000 \
-       --min_num_epochs 5 \
-       --early_stopping 50 \
-       --window_length 300 \
-       --hop_length 200 \
-       --train_batch_size 2 \
-       --eval_batch_size 1 \
-       --num_workers 6 \
-       --opt__weight_decay 0.0001 \
-       --opt__name_optimizer SGD \
-       --opt__lr 0.0001 \
-       --opt__momentum 0.9 \
-       --opt__dampening 0.0 \
-       --opt__nesterov True \
-       --opt__beta1 0.9 \
-       --opt__beta2 0.999 \
-       --opt__eps_adam 1e-08 \
-       --opt__amsgrad False \
-       --opt__lr_scheduler True \
-       --opt__name_lr_scheduler MYSTEP \
-       --opt__gamma 0.9 \
-       --opt__step_size 50 \
-       --opt__last_epoch -1 \
-       --opt__min_lr 1e-07 \
-       --opt__t_max 100 \
-       --opt__mode MIN \
-       --opt__factor 0.5 \
-       --opt__patience 10 \
-       --opt__gradual_release 1 \
-       --opt__release_count 3 \
-       --opt__milestone 0 \
-       --opt__load_best_at_each_epoch True \
-       --exp_id 07_17_2024_09_48_48_088070__8018213
+python text_emotion_classification.py
 ```
-
-## Testing on challenge CER:
-
-```bash
-#!/usr/bin/env bash
-
-source ~/venvs/abaw-7/bin/activate
-
-# ==============================================================================
-cudaid=$1
-export CUDA_VISIBLE_DEVICES=$cudaid
-
-python inference_challenge.py \
-       --mode EVALUATION \
-       --case_best_model FRAMES_AVG_LOGITS \
-       --target_ds_name C-EXPR-DB-CHALLENGE \
-       --eval_set test \
-       --fd_exp ABOLSUTE_APTH_TO_FOLDER_EXP
-```
-
-## Thanks
-This code is heavily based on [github.com/sucv/ABAW3](https://github.com/sucv/ABAW3).
