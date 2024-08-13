@@ -24,7 +24,7 @@ class HiddenPrints:
         sys.stdout.close()
         sys.stdout = self._original_stdout
 
-def get_model(model_name = 'bert', verbose = True):
+def get_model(model_name, args, verbose = True):
     """
     Returns the pretrained model to be fine-tuned
     Args:
@@ -32,10 +32,10 @@ def get_model(model_name = 'bert', verbose = True):
             Available Models: 'bert', 'roberta', 'llama2', 'llama3', 'phi2', 'phi-3-zeroshot', 'stablelm-zeroshot'.
         verbose (boolean): prints a summary of the model.
     """
-    if constants.DATASET == 'MELD':
+    if args.dataset == 'MELD':
         labels = constants.EMOTIONS
-    elif constants.DATASET == 'C-EXPR-DB':
-        if constants.USE_OTHER_CLASS:
+    elif args.dataset == 'C-EXPR-DB':
+        if args.use_other_class:
             labels = constants.COMPOUND_EMOTIONS
         else:
             labels = yaml.safe_load(Path('/datasets/C-EXPR-DB/folds/split-0/class_id.yaml').read_text())
@@ -108,7 +108,7 @@ def get_model(model_name = 'bert', verbose = True):
         model = None
     
     if model_name in ['llama2', 'phi-2', 'llama3', 'phi-3', 'roberta']:
-        peft_config = LoraConfig(task_type=TaskType.SEQ_CLS, r = constants.LORA_R, lora_alpha = constants.LORA_ALPHA, lora_dropout =constants.LORA_DROPOUT, use_rslora = True)
+        peft_config = LoraConfig(task_type=TaskType.SEQ_CLS, r = args.lora_r, lora_alpha = args.lora_alpha, lora_dropout =args.lora_dropout, use_rslora = True)
         model = get_peft_model(model, peft_config)
         if verbose:
             print(summary(model))
@@ -166,7 +166,7 @@ def get_predictions(model, dataloader, device):
     return np.argmax(logits, axis=1).numpy()
 
 
-def train(model, train_dataloader, dev_dataloader, device, lr, weight_decay, model_name, max_patience = 100):
+def train(model, train_dataloader, dev_dataloader, device, model_name, args, log_file):
     """
     Train the given model using the given train and dev dataloaders and device.
     Args:
@@ -174,18 +174,19 @@ def train(model, train_dataloader, dev_dataloader, device, lr, weight_decay, mod
         train_dataloader (torch.DataLoader): DataLoader to use to train.
         dev_dataloader (torch.DataLoader): DataLoader to use to validate.
         device (torch.device): device to use.
-        lr (float): learning rate.
-        weight_decay (float): weight decay.
         model_name (str): name of the model used.
-        max_patience (int): training is stopped after max_patience iterations without any validation score improvement.
-            Default: 100. 
+        args: training arguments
+        log_file (str): path to the log_file
     """
+    lr = args.lr
+    weight_decay = args.weight_decay
+    max_patience = args.max_patience
 
     patience = max_patience
     #optimizer = torch.optim.AdamW(model.parameters(), lr = lr, weight_decay=weight_decay)
     #optimizer = bnb.optim.PagedAdamW8bit(model.parameters(), lr = lr, weight_decay = weight_decay)
     optimizer = torch.optim.SGD(model.parameters(), lr = lr, weight_decay= weight_decay)
-    epochs = constants.EPOCHS
+    epochs = args.epochs
 
     total_steps = len(train_dataloader) * epochs
     #scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0, num_training_steps= total_steps)
@@ -195,15 +196,18 @@ def train(model, train_dataloader, dev_dataloader, device, lr, weight_decay, mod
 
     total_t0= time.time()
     best_val_f1_MELD =0
-    best_val_f1_w_other = 0
     best_val_f1_wo_other = 0
     for epoch in range(epochs):
+        log = ''
         if patience == 0:
             print(f'Patience exceeded, Training stopped before epoch {epoch}')
+            log +=f'\nPatience exceeded, Training stopped before epoch {epoch}'
             break
         print("")
         print('======== Epoch {:} / {:} ========'.format(epoch + 1, epochs))
+        log +='\n======== Epoch {:} / {:} ========'.format(epoch + 1, epochs)
         print('Training...')
+        log+='\nTraining...'
         t0 = time.time()
         total_train_loss = 0
         train_predictions_logits = []
@@ -234,15 +238,19 @@ def train(model, train_dataloader, dev_dataloader, device, lr, weight_decay, mod
         train_f1 = score(train_labels, train_predictions_logits, metric='f1', average='weighted')
         
         print('train w-F1 :', train_f1)    
-        
+        log += f'\ntrain w-F1 : {train_f1}'
         training_time = format_time(time.time() - t0)
         print("")
         print("  Average training loss: {0:.2f}".format(avg_train_loss))
+        log+="\n  Average training loss: {0:.2f}".format(avg_train_loss)
         print("  Training epoch took: {:}".format(training_time))
+        log+= "\n  Training epoch took: {:}".format(training_time)
 
         #Validation
         print("")
         print("Running Validation...")
+        log += '\nRunning Validation...'
+
         t0 = time.time()
         model.eval()
 
@@ -272,9 +280,9 @@ def train(model, train_dataloader, dev_dataloader, device, lr, weight_decay, mod
 
         validation_time = format_time(time.time() - t0)
 
-        if constants.DATASET == 'C-EXPR-DB':
+        if args.dataset == 'C-EXPR-DB':
 
-            if constants.USE_OTHER_CLASS:
+            if args.use_other_class:
                 predictions_logits_wo_other = predictions_logits[:,:-1]
             else:
                 predictions_logits_wo_other = predictions_logits
@@ -283,6 +291,9 @@ def train(model, train_dataloader, dev_dataloader, device, lr, weight_decay, mod
             val_acc_wo_other = score(labels, predictions_logits_wo_other, metric='accuracy')
             
             print('validation w-F1 wo. other:', val_f1_wo_other)
+            log += f'\nvalidation w-F1 wo. other: {val_f1_wo_other}'
+            print(f'best valid f1 : {best_val_f1_wo_other}')
+            log += f'\nbest valid f1 : {best_val_f1_wo_other}'
 
             if val_f1_wo_other >= best_val_f1_wo_other:
                 Path(f'{constants.MODEL_PATH}/saved').mkdir(parents=True, exist_ok=True)
@@ -291,9 +302,12 @@ def train(model, train_dataloader, dev_dataloader, device, lr, weight_decay, mod
                 best_val_f1_wo_other = val_f1_wo_other
                 patience =max_patience
                 print(f'Patience = {patience}')
+                log += f'\nPatience = {patience}'
+
             else:
                 patience -=1
                 print(f'Patience = {patience}')
+                log += f'\nPatience = {patience}'
 
             training_stats.append(
             {
@@ -310,14 +324,16 @@ def train(model, train_dataloader, dev_dataloader, device, lr, weight_decay, mod
                 
             }
         )
-        elif constants.DATASET == 'MELD':
+        elif args.dataset == 'MELD':
             predictions = np.argmax(predictions_logits, axis=1)
 
             val_f1 = score(labels, predictions_logits, metric='f1', average='weighted')
             val_acc = score(labels, predictions_logits, metric='accuracy')
 
             print('validation w-F1:', val_f1)
-
+            log+=f'\nvalidation w-F1: {val_f1}'
+            print(f'best valid f1 : {best_val_f1_MELD}')
+            log += f'\nbest valid f1 : {best_val_f1_MELD}'
             if val_f1 >= best_val_f1_MELD:
                 Path(f'{constants.MODEL_PATH}/saved').mkdir(parents=True, exist_ok=True)
                 torch.save(model.state_dict(), f'{constants.MODEL_PATH}/{model_name}')
@@ -325,9 +341,11 @@ def train(model, train_dataloader, dev_dataloader, device, lr, weight_decay, mod
                 best_val_f1_MELD = val_f1
                 patience =max_patience
                 print(f'Patience = {patience}')
+                log += f'\nPatience = {patience}'
             else:
                 patience -=1
                 print(f'Patience = {patience}')
+                log += f'\nPatience = {patience}'
             training_stats.append(
             {
                 'epoch': epoch + 1,
@@ -344,12 +362,16 @@ def train(model, train_dataloader, dev_dataloader, device, lr, weight_decay, mod
         )
                 
         print(f'current lr : {scheduler.get_lr()}')
-        
+        log += f'\ncurrent lr : {scheduler.get_lr()}'
+        with open(log_file, 'a') as f:
+            f.write(log)
         scheduler.step()
 
     print("")
     print("Training complete!")
-
+    with open(log_file, 'a') as f:
+            f.write(f'\nTraining complete!')
+            f.write("\nTotal training took {:} (h:mm:ss)".format(format_time(time.time()-total_t0))) 
     print("Total training took {:} (h:mm:ss)".format(format_time(time.time()-total_t0)))
     return training_stats
 

@@ -85,9 +85,9 @@ python3 preprocessing.py
 ```
 
 ## Training:
-Training arguments can be set in [constants.py](./constants.py), and the training can then be launched with:
+Training arguments are defined in [parser.py](./parser.py), and the training can then be launched with :
 ```bash
 source venv/bin/activate
 
-python text_emotion_classification.py
+python run_train.sh
 ```

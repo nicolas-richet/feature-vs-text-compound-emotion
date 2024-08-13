@@ -8,11 +8,11 @@ from transformers import BertTokenizer, AutoTokenizer
 import os
 import re
 import time
+import random
 
 
 
-
-def preprocess_data(device, tokenizer_name='bert', zeroshot =False):
+def preprocess_data(device, args, tokenizer_name='bert', zeroshot =False, sample_k_prompt = None, return_sentences = False):
     """
     Preprocesses the data from MELD for training. returns train/dev/test TensorDatasets of tokenized utterances and the class weights. If zeroshot is True then simply returns test pandas dataset
     Args:
@@ -20,7 +20,7 @@ def preprocess_data(device, tokenizer_name='bert', zeroshot =False):
         zeroshot (boolean): if True, the model is considered a Causal LM and will be used for zero-shot classification.
             Default: False.
     """
-    if constants.DATASET == 'MELD':
+    if args.dataset == 'MELD':
         #Read text datasets
         train = pd.read_csv(f'{constants.MELD_DATA_DIR}/train/train_sent_emo.csv', encoding='utf8')[['Utterance', 'Emotion', 'Dialogue_ID', 'Utterance_ID']]
         test = pd.read_csv(f'{constants.MELD_DATA_DIR}/test/test_sent_emo.csv')[['Utterance', 'Emotion', 'Dialogue_ID', 'Utterance_ID']]
@@ -33,7 +33,7 @@ def preprocess_data(device, tokenizer_name='bert', zeroshot =False):
             df['CE_path'] = [f'{constants.MELD_DATA_DIR}/{split}/videos/dia{x["Dialogue_ID"]}_utt{x["Utterance_ID"]}.mp4' for x in rowSeries]
         splits = ['full-split']
 
-    elif constants.DATASET == 'C-EXPR-DB':
+    elif args.dataset == 'C-EXPR-DB':
         compound_emotion = constants.COMPOUND_EMOTIONS
         annotation_df_list = []
         annotation_path = os.path.join(constants.C_EXPR_ANNOT_DIR, 'annotation')
@@ -47,7 +47,7 @@ def preprocess_data(device, tokenizer_name='bert', zeroshot =False):
                 annotation_df_list.append(annotation_df)
         annotation_df = pd.concat(annotation_df_list)
         
-    if constants.DATASET == 'C-EXPR-DB':
+    if args.dataset == 'C-EXPR-DB':
         hume_features_df_list = []
         for file in os.listdir(f'{constants.C_EXPR_DATA_DIR}/hume_features'):
             hume_features_df = pd.read_csv(f'{constants.C_EXPR_DATA_DIR}/hume_features/{file}')
@@ -65,18 +65,18 @@ def preprocess_data(device, tokenizer_name='bert', zeroshot =False):
         transcription_df = transcription_df.groupby(['path'], as_index=False)['transcription'].apply(lambda x: '\n '.join([y for y in x]))
         splits = os.listdir(constants.FOLDS_PATH)
         splits.sort()
-        splits = [splits[i] for i in constants.USED_FOLDS]
+        splits = [splits[i] for i in args.used_folds]
         audio_features_df = pd.read_csv(f'{constants.C_EXPR_DATA_DIR}/processed_audio_features.csv')
         audio_features_df['path'] = [f'{constants.C_EXPR_DATA_DIR}/{x}' for x in audio_features_df['path']]
 
     splits_dict_list = []
     for split in splits:
-        if constants.DATASET == 'C-EXPR-DB':
+        if args.dataset == 'C-EXPR-DB':
             train, test, val = [pd.read_csv(f'{constants.C_EXPR_ANNOT_DIR}/folds/{split}/{x}.txt', names=['CE_path', 'label']) for x in ['train', 'test', 'val']]
         updated_dfs = []
         for df, split_name in zip([train, test, val], ['train', 'test', 'dev']):
             video_paths = df['CE_path']
-            if constants.DATASET == 'MELD':
+            if args.dataset == 'MELD':
                 audio_features_df = pd.read_csv(f'{constants.MELD_DATA_DIR}/{split_name}/processed_audio_features.csv')
                 audio_features_df['path'] = [f'{constants.MELD_DATA_DIR}/{split_name}/videos/{x}' for x in audio_features_df['path']]
                 
@@ -91,20 +91,21 @@ def preprocess_data(device, tokenizer_name='bert', zeroshot =False):
                 hume = pd.concat(hume_features_df_list)
             
             
-                if constants.USE_MELD_TRAIN_SUBSET and split_name == 'train':
+                if args.use_meld_train_subset and split_name == 'train':
                     video_paths = pd.read_csv(constants.MELD_TRAIN_SUBSET_PATH, names=['paths'])
                     video_paths = [x.split("/")[-1] for x in video_paths['paths']]
                     video_paths = [f'{constants.MELD_DATA_DIR}/train/videos/{x}.mp4' for x in video_paths]
             
             video_features_df_list = []
+                
             for video_path in video_paths:
-                if constants.DATASET == 'MELD':
+                if args.dataset == 'MELD':
                     video_path = video_path.split("/")[-1]
                     if os.path.exists(f'{constants.MELD_DATA_DIR}/{split_name}/video_features/{video_path[:-4]}.csv'):
                         features_df = pd.read_csv(f'{constants.MELD_DATA_DIR}/{split_name}/video_features/{video_path[:-4]}.csv').drop('Unnamed: 0', axis=1)
                     else:
                         continue
-                elif constants.DATASET == 'C-EXPR-DB':
+                elif args.dataset == 'C-EXPR-DB':
                     features_df = pd.read_csv(f'{constants.C_EXPR_DATA_DIR}/video_features/{video_path}.csv').drop('Unnamed: 0', axis=1)
                 
                 predominant_face_idx = features_df[['frame', 'FaceScore']].groupby('frame')['FaceScore'].transform('max') == features_df['FaceScore']
@@ -117,8 +118,8 @@ def preprocess_data(device, tokenizer_name='bert', zeroshot =False):
                 idx = video_features_df['input']== video
                 input_frames = video_features_df[idx].set_index('frame')
                 
-                if constants.TRAINING_METHOD == 'windows' and (split_name == 'train' or (not(constants.USE_SINGLE_FRAME_PER_VIDEO) and constants.DATASET=='MELD')):
-                    interval_ids = [i for i in range(0,len(input_frames.index),constants.WINDOW_HOP)] + [len(input_frames.index)]
+                if args.training_method == 'windows' and (split_name == 'train' or (not(args.use_single_frame_per_video) and args.dataset=='MELD')):
+                    interval_ids = [i for i in range(0,len(input_frames.index),args.window_hop)] + [len(input_frames.index)]
                     for idz in range(len(interval_ids)-1):
                         context = input_frames.iloc[interval_ids[idz]:interval_ids[idz+1]]
                         action_units = pd.DataFrame([context[list(constants.ACTION_UNITS.keys())+['anger', 'disgust', 'fear', 'happiness', 'sadness', 'surprise', 'neutral']].max(axis=0)])
@@ -126,42 +127,42 @@ def preprocess_data(device, tokenizer_name='bert', zeroshot =False):
                         action_units['frame'] = interval_ids[idz]
                         summarized_video_features_df = pd.concat([summarized_video_features_df, action_units], ignore_index=True)
 
-                elif constants.TRAINING_METHOD == 'all' or split_name != 'train':
+                elif args.training_method == 'all' or split_name != 'train':
                     for frame in input_frames.index:
-                        first_context_frame = max((frame-constants.WINDOW_SIZE//2),0)
-                        last_context_frame = min(frame+constants.WINDOW_SIZE//2+1, len(input_frames))
+                        first_context_frame = max((frame-args.window_size//2),0)
+                        last_context_frame = min(frame+args.window_size//2+1, len(input_frames))
                         context = input_frames.iloc[first_context_frame:last_context_frame]
                         action_units = pd.DataFrame([context[list(constants.ACTION_UNITS.keys())+['anger', 'disgust', 'fear', 'happiness', 'sadness', 'surprise', 'neutral']].max(axis=0)])
                         action_units['CE_path'] = video
                         action_units['frame'] = frame
                         summarized_video_features_df = pd.concat([summarized_video_features_df, action_units], ignore_index=True)
-                        if constants.USE_SINGLE_FRAME_PER_VIDEO and constants.DATASET == 'MELD':
+                        if args.use_single_frame_per_video and args.dataset == 'MELD':
                             break
-            if constants.DATASET == 'C-EXPR-DB':
+            if args.dataset == 'C-EXPR-DB':
                 df['CE_path'] = [f'{constants.C_EXPR_ANNOT_DIR}/trimmed_videos/{x}.mp4' for x in df['CE_path']]
                 df = pd.merge(df, annotation_df.set_index('trimmed_path'), how='left', left_on=['CE_path'], right_on=['trimmed_path'], suffixes=('_left', ''))
                 
             df = pd.merge(summarized_video_features_df, df.set_index('CE_path'), how = 'left', left_on=['CE_path'], right_on=['CE_path'], suffixes= ['_left', ''])
             df = pd.merge(df, audio_features_df, how='left', left_on='path', right_on='path')
-            if constants.DATASET == 'C-EXPR-DB':
+            if args.dataset == 'C-EXPR-DB':
                 df['Begin Time - hh:mm:ss.ms'] = df['Begin Time - hh:mm:ss.ms'].apply(time_to_seconds)
                 df['End Time - hh:mm:ss.ms'] = df['End Time - hh:mm:ss.ms'].apply(time_to_seconds)
 
             #add hume_features based on context
             context_features_list = []
-            if constants.DATASET == 'C-EXPR-DB':
+            if args.dataset == 'C-EXPR-DB':
                 for clip in df['CE_path'].unique():
                     idx_label = df['CE_path']==clip                
                     start = df[idx_label]['Begin Time - hh:mm:ss.ms'].iloc[0]
                     end = df[idx_label]['End Time - hh:mm:ss.ms'].iloc[0]
                     idx_clip_hume = hume['path']==df[idx_label].iloc[0]['path']
-                    idx_utt = ((hume[idx_clip_hume]['start'] <= end+constants.HUME_SUPP_CONTEXT) & (hume[idx_clip_hume]['start'] >= start-constants.HUME_SUPP_CONTEXT))  | ((hume[idx_clip_hume]['start'] <= end+constants.HUME_SUPP_CONTEXT) & (hume[idx_clip_hume]['end']>=start-constants.HUME_SUPP_CONTEXT))
+                    idx_utt = ((hume[idx_clip_hume]['start'] <= end+args.hume_supp_context) & (hume[idx_clip_hume]['start'] >= start-args.hume_supp_context))  | ((hume[idx_clip_hume]['start'] <= end+args.hume_supp_context) & (hume[idx_clip_hume]['end']>=start-args.hume_supp_context))
                     
                     context_hume_features = hume[idx_clip_hume][idx_utt].nlargest(10, 'score')
                         
                     context_hume_features['CE_path'] =clip
                     context_features_list.append(context_hume_features)
-            elif constants.DATASET == 'MELD':
+            elif args.dataset == 'MELD':
                 for clip in hume['path'].unique():
                     idx_label = hume['path']==clip                
                     context_hume_features = hume[idx_label].nlargest(10, 'score')
@@ -172,9 +173,8 @@ def preprocess_data(device, tokenizer_name='bert', zeroshot =False):
             context_hume_features_df = context_hume_features_df.groupby(['path', 'CE_path'], as_index=False).apply(concatenate_hume_features, include_groups=False)
             context_hume_features_df.columns = ['path', 'CE_path', 'characteristics']
             df = pd.merge(df, context_hume_features_df, how='left', left_on=['path', 'CE_path'], right_on=['path', 'CE_path'])
-            
-            if constants.DATASET == 'C-EXPR-DB':
-                if constants.TRANSCRIPTION_CONTEXT == "clip":
+            if args.dataset == 'C-EXPR-DB':
+                if args.transcription_context == "clip":
                     #add speech transcription corresponding to the clip
                     transcription_df = pd.read_csv(f'{constants.C_EXPR_DATA_DIR}/clips_transcription.csv', names = ['CE_path', 'transcription'])
                     transcription_df['CE_path'] = [f'{constants.C_EXPR_ANNOT_DIR}/trimmed_videos/{x}.mp4' for x in transcription_df['CE_path']]
@@ -183,9 +183,11 @@ def preprocess_data(device, tokenizer_name='bert', zeroshot =False):
                     #add speech transcription of the whole clip
                     df = pd.merge(df, transcription_df, how='left', left_on='path', right_on='path')
                 df['label'] = df['label'].astype(int)
-                if not(constants.USE_OTHER_CLASS) or split_name != 'train':
+                if not(args.use_other_class) or split_name != 'train':
                     df = df[df['label'] != 7].reset_index()
-            df['Utterance'] = df.apply(apply_prompt_template, axis=1)
+            df['Utterance'] = df.apply(lambda x: apply_prompt_template(x, args=args), axis=1)
+            if sample_k_prompt != None:
+                df = df.sample(sample_k_prompt)
             
             updated_dfs.append(df)
         train, test, val = updated_dfs
@@ -216,13 +218,14 @@ def preprocess_data(device, tokenizer_name='bert', zeroshot =False):
         tokenizer.pad_token = tokenizer.eos_token
 
     # computes Max sequence length
-    split_dict = splits_dict_list[0]
-    train, test, val = split_dict['train'], split_dict['test'], split_dict['val']
     max_len = 0
-    sentences = np.concatenate([np.array(train['Utterance']), np.array(test['Utterance']), np.array(val['Utterance'])])
-    for sentence in sentences:
-        input_ids=tokenizer.encode(sentence, add_special_tokens=True)
-        max_len = max(max_len, len(input_ids))
+    for split_dict in splits_dict_list:
+        train, test, val = split_dict['train'], split_dict['test'], split_dict['val']
+        
+        sentences = np.concatenate([np.array(train['Utterance']), np.array(test['Utterance']), np.array(val['Utterance'])])
+        for sentence in sentences:
+            input_ids=tokenizer.encode(sentence, add_special_tokens=True)
+            max_len = max(max_len, len(input_ids))
     print(f'Max sentence length: {max_len}')
     print(f'shape of train dataframe : {split_dict["train"].shape}')
     print(f'shape of val dataframe : {split_dict["val"].shape}')
@@ -240,18 +243,21 @@ def preprocess_data(device, tokenizer_name='bert', zeroshot =False):
                 attention_masks.append(encoded_dict['attention_mask'])
             input_ids = torch.cat(input_ids, dim=0)
             attention_masks = torch.cat(attention_masks, dim=0)
-            labels = torch.tensor(split_dict[sub_split]['label'])
+            labels = torch.tensor(list(split_dict[sub_split]['label']))
             dataset = TensorDataset(input_ids, attention_masks, labels)
             datasets.append(dataset)
+        if return_sentences:
+            split_dict['test_sentences'] = list(split_dict['test']['Utterance'])
         split_dict['train'] = datasets[0]
         split_dict['test'] = datasets[1]
         split_dict['val'] = datasets[2]
+        
 
     return splits_dict_list
 
 
 
-def apply_prompt_template(row):
+def apply_prompt_template(row, args):
     """
     Applies prompt template to the given row
     Args:
@@ -261,31 +267,33 @@ def apply_prompt_template(row):
     prompt = ''
     aus = row[list(constants.ACTION_UNITS.keys())]
     activated_aus = ''.join([f'{constants.ACTION_UNITS[x]}, ' if aus[x]>0.5 else '' for x in constants.ACTION_UNITS.keys()])
+    
+    tone_description = row['characteristics']
+    if not(isinstance(tone_description, str)):
+        tone_description = 'No speech detected'
+    if args.dataset == 'MELD':
+        transcription = row['Utterance']
+    elif args.dataset == 'C-EXPR-DB':
+        transcription = row['transcription']
+    visual_emotions = row[['anger', 'disgust', 'fear', 'happiness', 'sadness', 'surprise', 'neutral']].astype(float)
+    visual_emotions_text = ', '.join(visual_emotions.nlargest(n=3).index if visual_emotions.nlargest(1).iloc[0]>0 else [])
     if len(activated_aus)>2:
         activated_aus = activated_aus[:-2]
     else:
         activated_aus = 'No face detected'
-    tone_description = row['characteristics']
-    if not(isinstance(tone_description, str)):
-        tone_description = 'No speech detected'
-    if constants.DATASET == 'MELD':
-        transcription = row['Utterance']
-    elif constants.DATASET == 'C-EXPR-DB':
-        transcription = row['transcription']
-    visual_emotions = row[['anger', 'disgust', 'fear', 'happiness', 'sadness', 'surprise', 'neutral']].astype(float)
-    visual_emotions_text = ', '.join(visual_emotions.nlargest(n=3).index if visual_emotions.nlargest(1).iloc[0]>0 else [])
+        visual_emotions_text = 'No face detected'
     valence = round(row['Valence'], 2) 
     arousal = round(row['Arousal'], 2)
     dominance = round(row['Dominance'], 2)
     
-    if 'T' in constants.USED_MODALITIES:
+    if 'T' in args.used_modalities:
         prompt+=f"Speech transcription of the video : {transcription}; "
-    if 'V' in constants.USED_MODALITIES:
+    if 'V' in args.used_modalities:
         prompt += f"Facial Action Units activated during the video : {activated_aus}; Emotions predicted from visual modality: {visual_emotions_text}; "
     
-    if 'A' in constants.USED_MODALITIES:
+    if 'A' in args.used_modalities:
         prompt += f"Characteristics of the prosody : {tone_description}; "
-        if constants.TEXTUALIZE_AUDIO_LEVELS:
+        if args.textualize_audio_levels:
             feature_levels = []
             for feature in [valence, arousal, dominance]:
                 feature_levels.append('High' if feature>=0.5 else 'Low')
