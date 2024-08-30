@@ -12,13 +12,15 @@ import random
 
 
 
-def preprocess_data(device, args, tokenizer_name='bert', zeroshot =False, sample_k_prompt = None, return_sentences = False):
+def preprocess_data(device, args, tokenizer_name='bert', sample_k_prompt = None, return_sentences = False, return_val_df = False, specific_video_paths = None):
     """
-    Preprocesses the data from MELD for training. returns train/dev/test TensorDatasets of tokenized utterances and the class weights. If zeroshot is True then simply returns test pandas dataset
+    Preprocesses the data from MELD for training. returns a list of dictionnaries (one for each fold), split contains train/val/test tensor datasets
     Args:
         tokenizer_name (string): name of the tokenizer to use (same as the model name).
-        zeroshot (boolean): if True, the model is considered a Causal LM and will be used for zero-shot classification.
-            Default: False.
+        sample_k_prompt (int): to sample randomly a given number of prompts
+        return_sentences (boolean): if True then for each fold dictionnary d, d['test_sentences'] contains the sentences corresponding to the input_ids in d['test']
+        return_val_df (boolean): if True then split_dict['val_df'] contains the validation dataframe
+        specific_video_paths (str list): list of paths to specific videos to preprocess (only these videos will be preprocessed)
     """
     if args.dataset == 'MELD':
         #Read text datasets
@@ -47,7 +49,6 @@ def preprocess_data(device, args, tokenizer_name='bert', zeroshot =False, sample
                 annotation_df_list.append(annotation_df)
         annotation_df = pd.concat(annotation_df_list)
         
-    if args.dataset == 'C-EXPR-DB':
         hume_features_df_list = []
         for file in os.listdir(f'{constants.C_EXPR_DATA_DIR}/hume_features'):
             hume_features_df = pd.read_csv(f'{constants.C_EXPR_DATA_DIR}/hume_features/{file}')
@@ -76,13 +77,12 @@ def preprocess_data(device, args, tokenizer_name='bert', zeroshot =False, sample
         updated_dfs = []
         for df, split_name in zip([train, test, val], ['train', 'test', 'dev']):
             video_paths = df['CE_path']
+            if specific_video_paths != None:
+                video_paths =  specific_video_paths
             if args.dataset == 'MELD':
                 audio_features_df = pd.read_csv(f'{constants.MELD_DATA_DIR}/{split_name}/processed_audio_features.csv')
                 audio_features_df['path'] = [f'{constants.MELD_DATA_DIR}/{split_name}/videos/{x}' for x in audio_features_df['path']]
                 
-                if split_name == 'test':
-                    updated_dfs.append(df)
-                    continue
                 hume_features_df_list = []
                 for file in os.listdir(f'{constants.MELD_DATA_DIR}/{split_name}/hume_features'):
                     hume_features_df = pd.read_csv(f'{constants.MELD_DATA_DIR}/{split_name}/hume_features/{file}')
@@ -128,9 +128,13 @@ def preprocess_data(device, args, tokenizer_name='bert', zeroshot =False, sample
                         summarized_video_features_df = pd.concat([summarized_video_features_df, action_units], ignore_index=True)
 
                 elif args.training_method == 'all' or split_name != 'train':
+                    window_size = args.window_size
                     for frame in input_frames.index:
-                        first_context_frame = max((frame-args.window_size//2),0)
-                        last_context_frame = min(frame+args.window_size//2+1, len(input_frames))
+                        
+                        if args.use_single_frame_per_video and args.dataset == 'MELD':
+                            window_size = len(input_frames)*10
+                        first_context_frame = max((frame-window_size//2),0)
+                        last_context_frame = min(frame+window_size//2+1, len(input_frames))
                         context = input_frames.iloc[first_context_frame:last_context_frame]
                         action_units = pd.DataFrame([context[list(constants.ACTION_UNITS.keys())+['anger', 'disgust', 'fear', 'happiness', 'sadness', 'surprise', 'neutral']].max(axis=0)])
                         action_units['CE_path'] = video
@@ -138,11 +142,13 @@ def preprocess_data(device, args, tokenizer_name='bert', zeroshot =False, sample
                         summarized_video_features_df = pd.concat([summarized_video_features_df, action_units], ignore_index=True)
                         if args.use_single_frame_per_video and args.dataset == 'MELD':
                             break
+                        
             if args.dataset == 'C-EXPR-DB':
                 df['CE_path'] = [f'{constants.C_EXPR_ANNOT_DIR}/trimmed_videos/{x}.mp4' for x in df['CE_path']]
                 df = pd.merge(df, annotation_df.set_index('trimmed_path'), how='left', left_on=['CE_path'], right_on=['trimmed_path'], suffixes=('_left', ''))
-                
             df = pd.merge(summarized_video_features_df, df.set_index('CE_path'), how = 'left', left_on=['CE_path'], right_on=['CE_path'], suffixes= ['_left', ''])
+            if sample_k_prompt != None:
+                df = df.sample(sample_k_prompt)
             df = pd.merge(df, audio_features_df, how='left', left_on='path', right_on='path')
             if args.dataset == 'C-EXPR-DB':
                 df['Begin Time - hh:mm:ss.ms'] = df['Begin Time - hh:mm:ss.ms'].apply(time_to_seconds)
@@ -186,8 +192,7 @@ def preprocess_data(device, args, tokenizer_name='bert', zeroshot =False, sample
                 if not(args.use_other_class) or split_name != 'train':
                     df = df[df['label'] != 7].reset_index()
             df['Utterance'] = df.apply(lambda x: apply_prompt_template(x, args=args), axis=1)
-            if sample_k_prompt != None:
-                df = df.sample(sample_k_prompt)
+            
             
             updated_dfs.append(df)
         train, test, val = updated_dfs
@@ -248,6 +253,8 @@ def preprocess_data(device, args, tokenizer_name='bert', zeroshot =False, sample
             datasets.append(dataset)
         if return_sentences:
             split_dict['test_sentences'] = list(split_dict['test']['Utterance'])
+        if return_val_df:
+            split_dict['val_df'] = split_dict['val']
         split_dict['train'] = datasets[0]
         split_dict['test'] = datasets[1]
         split_dict['val'] = datasets[2]

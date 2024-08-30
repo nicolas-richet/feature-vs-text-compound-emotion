@@ -151,7 +151,8 @@ def get_predictions(model, dataloader, device):
         device (torch.device): device to use
     """
     logits_list = []
-    for batch in dataloader:
+    for i, batch in enumerate(dataloader):
+            print(f'batch {i}/{len(dataloader)}')
             b_input_ids = batch[0].to(device)
             b_input_mask = batch[1].to(device)
             b_labels = batch[2].to(device)
@@ -165,6 +166,13 @@ def get_predictions(model, dataloader, device):
     logits = torch.cat(logits_list, 0)
     return np.argmax(logits, axis=1).numpy()
 
+
+def reinitialize_weights(module):
+    # Reinitialize the weights
+    if isinstance(module, nn.Linear):
+        nn.init.xavier_uniform_(module.weight)
+        if module.bias is not None:
+            nn.init.zeros_(module.bias)
 
 def train(model, train_dataloader, dev_dataloader, device, model_name, args, log_file):
     """

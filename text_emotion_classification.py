@@ -2,13 +2,14 @@
 from torch.utils.data import DataLoader, RandomSampler, WeightedRandomSampler
 import constants
 import torch
+import torch.nn as nn
 import numpy as np
 import datetime
 import random
 import matplotlib.pyplot as plt
 import pandas as pd
 from frame_data_processing import preprocess_data
-from model import get_model, train, get_predictions
+from model import get_model, train, get_predictions, reinitialize_weights
 from sklearn.metrics import f1_score
 from time import sleep
 plt.style.use("ggplot")
@@ -34,12 +35,26 @@ def main(args):
         split_name = split_dict['split']
         time = datetime.datetime.now().strftime("%d_%m_%Y_%H_%M_%S")
         model_name = f'{base_model_name}_{args.dataset}_{split_name}_{time}'
+        args.model_name = model_name
         sampler = None
         train_dataloader = DataLoader(split_dict['train'], sampler = sampler, batch_size=batch_size, shuffle=True)
         #test_dataloader = DataLoader(split_dict['test'], batch_size=batch_size)
         dev_dataloader = DataLoader(split_dict['val'], batch_size=batch_size, shuffle=False)
         # Load Model
         model = get_model(base_model_name, args = args)
+        if args.init_model:
+            model.load_state_dict(torch.load(args.init_model_path))
+            print(f'model loaded : {args.init_model_path}')
+            print(model.base_model.model.score.weight[0, :10])
+            sleep(10)
+            # Access the classification head
+            classification_head = model.base_model.model.score
+            # Apply the reinitialization
+            classification_head.apply(reinitialize_weights)
+            print('Classification head reinitialized')
+            print(model.base_model.model.score.weight[0, :10])
+            sleep(10)
+            print(model)
         sleep(10)
         model.to(device)
         
@@ -93,7 +108,7 @@ def main(args):
             log += f'{args}'
             result_file.write(log) 
         model = ''
-        model = get_model(model_name='llama3', args=args)
+        model = get_model(model_name=base_model_name, args=args)
         model.load_state_dict(torch.load('/home/ens/AU58490/work/YP/text-emotion/models/' +model_name))
         model.to(device)
         model.eval()
